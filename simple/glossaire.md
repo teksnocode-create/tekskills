@@ -32,3 +32,7 @@ Terme considéré comme acquis dès qu'il apparaît ici : ne plus le re-simplifi
 - **branche (git)** : une copie parallèle de tout le projet sur laquelle on bricole sans toucher à la version officielle (`main`), comme dupliquer un workflow n8n en "test" pendant que l'original tourne en prod
 - **merge** : reverser une branche dans la version officielle (`main`) une fois validée — c'est ce qui envoie les modifs en prod
 - **preview (Vercel)** : le site fabriqué automatiquement à partir d'une branche, avec sa propre URL de test, pendant que la vraie prod reste sur `main`
+- **appliquer une migration** : exécuter le fichier de migration sur la vraie base, pour que le changement décrit dedans existe pour de bon (le fichier seul, c'est un post-it "créer telle table" ; l'appliquer, c'est la créer)
+- **prompt système** : les consignes permanentes envoyées à l'IA avant chaque question, que le client ne voit jamais (le cadre : de quoi elle a le droit de parler, ce qu'elle n'a pas le droit d'inventer)
+- **fail-closed** : quand une vérification échoue, on refuse au lieu de laisser passer (un garde-fou qui bloque en cas de doute plutôt que d'ouvrir en grand)
+- **encadrer par des balises** : entourer le texte du client de marqueurs `<message_client>` pour que l'IA le traite comme une question et jamais comme un ordre (même logique que ne pas faire confiance au contenu d'un webhook)
