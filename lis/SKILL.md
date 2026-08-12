@@ -1,13 +1,13 @@
 ---
-name: lis-tout
-description: Force la lecture intégrale d'un document long avant toute action, puis bloque sur un résumé en langage clair validé par l'utilisateur avant d'écrire du code. Déclencher UNIQUEMENT quand Nico tape "/lis-tout" ou "lis tout" explicitement, jamais automatiquement sur simple upload de fichier volumineux.
+name: lis
+description: Force la lecture intégrale d'un document long avant toute action, puis bloque sur un résumé en langage clair validé par l'utilisateur avant d'écrire du code. Déclencher UNIQUEMENT quand Nico tape "/lis" ou "lis tout" explicitement, jamais automatiquement sur simple upload de fichier volumineux.
 ---
 
-# Lis-tout
+# Lis
 
 Skill à déclenchement explicite. Objectif : éliminer le risque de lecture partielle ou de résumé de surface sur un document long (cahier des charges, brief client, spec technique, contrat) avant de s'engager sur du code ou une architecture.
 
-Ne s'active QUE si Nico tape `/lis-tout` ou `lis tout` dans son message. Sur simple upload de fichier sans ce mot-clé, comportement normal (pas de skill).
+Ne s'active QUE si Nico tape `/lis` ou `lis tout` dans son message. Sur simple upload de fichier sans ce mot-clé, comportement normal (pas de skill).
 
 ## Pourquoi ce skill existe
 
