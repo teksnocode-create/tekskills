@@ -21,6 +21,24 @@ Ne jamais ajouter dans Airtable un morceau que Nico possède déjà. C'est le po
 
 ---
 
+## Deux contextes d'exécution
+
+Le skill tourne indifféremment depuis l'app Claude (desktop/mobile) ou depuis Claude Code en terminal. **Seule la façon d'atteindre le disque change** — la logique, l'ordre des étapes, les garde-fous et la règle d'or sont identiques.
+
+| | App Claude | Claude Code (terminal) |
+|---|---|---|
+| Accès disque | outils `device_*`, le disque est distant | accès direct au système de fichiers |
+| Racine du disque | `$HOME/mnt/SWIT` | `/Volumes/SWIT` |
+| Lire un fichier | `device_stage_files` | `Read` / `Bash` |
+| Écrire un fichier | `SendUserFile` → `device_commit_files` | `Write` / `Bash` |
+| Lancer le script | non | `python3 scripts/serato_lib.py` importable directement |
+
+**Déterminer le contexte au démarrage :** si les outils `device_*` sont disponibles, on est dans l'app. Sinon, on est en Claude Code — vérifier `/Volumes/SWIT` avec `ls`.
+
+Dans les étapes qui suivent, les blocs marqués **[App Claude]** et **[Claude Code]** ne concernent que le contexte détecté. Tout le reste s'applique dans les deux cas.
+
+---
+
 ## Étape 0 — Le nom de l'événement (BLOQUANT)
 
 **Ne rien faire avant d'avoir le nom exact de l'événement.** C'est la première question, systématiquement, même si Nico a déjà fourni le CSV dans le même message.
@@ -48,7 +66,15 @@ La collection est sur le disque externe **SWIT**.
 /Volumes/SWIT/_Serato_/               <- la bibliothèque Serato
 ```
 
-Si le dossier n'est pas connecté, utiliser `device_request_folder_access` sur `/Volumes/SWIT`. S'il est introuvable, le disque n'est pas branché — s'arrêter et le demander.
+**[App Claude]** Si le dossier n'est pas connecté, utiliser `device_request_folder_access` sur `/Volumes/SWIT`. S'il est introuvable, le disque n'est pas branché — s'arrêter et le demander.
+
+**[Claude Code]** Vérifier directement :
+
+```bash
+ls -d /Volumes/SWIT/_Serato_ "/Volumes/SWIT/++ ZIK  Collection"
+```
+
+Si ça échoue, le disque n'est pas branché — s'arrêter et le demander. Vérifier aussi qu'il n'est pas monté en double (`ls -d /Volumes/SWIT*` : la présence de `SWIT 1` est un problème, voir Pièges connus).
 
 **Vérifier aussi que Serato est fermé** (voir Étape 4). On peut lire avec Serato ouvert, jamais écrire.
 
@@ -56,14 +82,27 @@ Si le dossier n'est pas connecté, utiliser `device_request_folder_access` sur `
 
 ## Étape 2 — Lire la collection
 
-Récupérer la bibliothèque avec `device_stage_files` :
+Deux fichiers à lire :
 
 ```
-/Volumes/SWIT/_Serato_/database V2
-/Volumes/SWIT/_Serato_/Library/location.sqlite
+_Serato_/database V2
+_Serato_/Library/location.sqlite
 ```
 
-Puis utiliser `scripts/serato_lib.py` (voir `references/serato-format.md` pour le détail du format).
+**[App Claude]** Les récupérer avec `device_stage_files`, puis les traiter en local.
+
+**[Claude Code]** Les lire directement sur le disque, sans copie :
+
+```python
+import sys; sys.path.insert(0, "scripts")
+import serato_lib as s
+paths  = s.read_database_v2("/Volumes/SWIT/_Serato_/database V2")
+assets = s.read_assets("/Volumes/SWIT/_Serato_/Library/location.sqlite")
+```
+
+La lecture est sans risque même si Serato est ouvert. Ouvrir `location.sqlite` en lecture seule (`file:...?mode=ro`) si Serato tourne, pour éviter de poser un verrou.
+
+Dans les deux cas, le traitement passe par `scripts/serato_lib.py` (voir `references/serato-format.md` pour le détail du format).
 
 Ordres de grandeur au moment de l'écriture du skill, à titre de repère : environ 9 500 morceaux, 80 crates, 10 000 fichiers audio.
 
@@ -110,8 +149,14 @@ Compter environ 10 à 20 % de cas ambigus sur un CSV de mariage typique.
 2. **Sauvegarder `_Serato_` avant toute écriture.** Environ 52 Mo, quelques secondes :
 
 ```bash
+# [App Claude]
 cp -R "$HOME/mnt/SWIT/_Serato_" "$HOME/mnt/SWIT/SAUVEGARDE_Serato_AAAAMMJJ"
+
+# [Claude Code]
+cp -R "/Volumes/SWIT/_Serato_" "/Volumes/SWIT/SAUVEGARDE_Serato_$(date +%Y%m%d)"
 ```
+
+Confirmer que la sauvegarde existe et pèse le bon volume (`du -sh`) avant d'écrire quoi que ce soit.
 
 Nommer la sauvegarde **`SAUVEGARDE_Serato_...`** et surtout **pas** `_Serato_...` : Serato repère ses bibliothèques en cherchant les dossiers commençant par `_Serato_` à la racine des volumes, et un dossier mal nommé introduit une ambiguïté.
 
@@ -127,17 +172,50 @@ Attention : `++ MARIAGE ` porte un **espace final** dans la hiérarchie. Reprend
 
 ### Écriture
 
-Générer le fichier avec `scripts/serato_lib.py`, puis le déposer via `SendUserFile` → `device_commit_files`.
+Le fichier se génère dans les deux cas avec `build_crate()` de `scripts/serato_lib.py`, qui refuse d'écrire si un chemin n'existe pas à l'identique dans `database V2`.
+
+**[App Claude]** Déposer le binaire produit via `SendUserFile` → `device_commit_files`.
+
+**[Claude Code]** Écrire directement dans `Subcrates/`. Passer par Python en binaire, jamais par `Write` (le contenu n'est pas du texte) :
+
+```python
+import sys; sys.path.insert(0, "scripts")
+import serato_lib as s
+
+ROOT = "/Volumes/SWIT/_Serato_"
+reference = s.read_database_v2(f"{ROOT}/database V2")
+
+# Reprendre le prefixe d'une crate mariage existante plutot que de le retaper
+import os
+existants = [f for f in os.listdir(f"{ROOT}/Subcrates") if "MARIAGE" in f]
+prefixe = existants[0].rsplit("%%", 1)[0]          # ex. "TOUS%%#CLUB%%++ MARIAGE "
+
+cible = f"{ROOT}/Subcrates/{prefixe}%%{nom_evenement}.crate"
+blob  = s.build_crate(chemins_trouves, reference)
+with open(cible, "wb") as fh:
+    fh.write(blob)
+```
+
+Ne jamais écraser une crate existante : si `cible` existe déjà, s'arrêter et demander à Nico.
 
 **La règle absolue du format est dans `references/serato-format.md` — la lire avant d'écrire.** En résumé : ne jamais fabriquer un chemin à partir d'un listing disque, toujours réutiliser tel quel le chemin déjà présent dans `database V2`. Serato encode certains caractères dans une zone Unicode privée, et un chemin reconstruit à la main casse silencieusement.
 
 ### Vérification obligatoire
 
-Après écriture, relire le fichier depuis le disque et confirmer :
+Après écriture, relire le fichier **depuis le disque** (pas depuis la mémoire) et le passer à `verify_crate()` :
 
-- le nombre de morceaux correspond
-- les chemins sont **tous** présents à l'identique dans `database V2`
-- l'en-tête fait 441 octets, identique à celui d'une crate existante
+```python
+with open(cible, "rb") as fh:
+    relu = fh.read()
+print(s.verify_crate(relu, chemins_trouves, reference))
+```
+
+Les cinq contrôles doivent tous passer :
+
+- `nombre_morceaux` == `attendu`
+- `ordre_conforme` True
+- `entete_441_octets` True
+- `chemins_tous_connus` True
 
 Puis demander à Nico de relancer Serato et de confirmer que les morceaux s'affichent — pas de points d'interrogation, BPM et clés présents.
 
