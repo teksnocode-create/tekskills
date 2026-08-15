@@ -1,18 +1,26 @@
 ---
 name: punto
-description: Produit un recap de fin de journee destine a Geoffrey, en langage metier sans jargon technique. Se declenche UNIQUEMENT quand Nicolas dit "punto" ou "/punto". Ne pas invoquer spontanement.
+description: Produit un recap de fin de journee prêt a copier-coller, en langage metier sans jargon technique. Le destinataire n'est pas fixe, il se deduit du contexte ou se precise en argument. Se declenche UNIQUEMENT quand Nicolas dit "punto" ou "/punto". Ne pas invoquer spontanement.
 user-invocable: true
 ---
 
-# Skill : Punto (recap pour Geoffrey)
+# Skill : Punto (recap de fin de journee)
 
 ## Declencheur
 Uniquement quand Nicolas ecrit "punto" ou "/punto". Jamais de facon spontanee, jamais en fin de session sans le mot.
 
-Argument optionnel : "punto semaine" -> couvrir plusieurs jours au lieu de la journee.
+Arguments optionnels, combinables :
+- "punto semaine" -> couvrir plusieurs jours au lieu de la journee
+- "punto geoffrey", "punto alegria", "punto client" -> fixe le destinataire
 
 ## Destinataire
-Geoffrey (patron, Kaizen IA). Il veut savoir ce qui a bouge pour le produit et pour les clients. Il ne lit pas de code, ne connait pas les noms de tables ni de workflows.
+**Ne jamais supposer Geoffrey par defaut.** Le determiner dans cet ordre :
+
+1. **L'argument passe a la commande**, s'il y en a un.
+2. **Le contexte de la conversation** : de qui parle-t-on, a qui ce message va-t-il servir, quel projet est ouvert. Exemples : travail sur un projet Kaizen IA -> Geoffrey ; sujet certification ou ecole -> referent de formation ; sujet mission client -> le client concerne ; projet perso sans tiers -> Nicolas lui-meme, en note de suivi.
+3. **Si le contexte ne tranche pas** : ecrire quand meme le recap dans une forme neutre, sans nommer personne, et signaler en une phrase sous le bloc pour qui il a ete ecrit, en proposant de le refaire pour un autre destinataire. Ne pas bloquer sur une question.
+
+Quel que soit le destinataire : il ne lit pas de code, ne connait ni les noms de tables ni les noms de workflows, et veut savoir ce qui a bouge concretement.
 
 ## Deroule
 
@@ -20,12 +28,12 @@ Geoffrey (patron, Kaizen IA). Il veut savoir ce qui a bouge pour le produit et p
 Dans cet ordre, en s'arretant des qu'on a de quoi ecrire :
 1. La conversation en cours.
 2. Les commits du jour : `git log --since="00:00" --pretty=format:"%h %s"` (et `--since="7 days ago"` en mode semaine).
-3. L'entree du jour dans `LOGBOOK.md` si le projet en a un.
+3. L'entree du jour dans `LOGBOOK.md` ou `PROGRESS.md` si le projet en a un.
 
 Ne rien inventer. Si un point est incertain, ne pas l'ecrire.
 
 ### 2. Traduire avant d'ecrire
-Chaque ligne doit repondre a "qu'est-ce que ca change pour un client ou pour le business ?".
+Chaque ligne doit repondre a "qu'est-ce que ca change, pour qui ?".
 
 Interdits dans la sortie :
 - noms de fichiers, de fonctions, de colonnes, de tables, d'IDs de workflow
@@ -48,11 +56,11 @@ Punto du [JJ/MM]
 Fait :
 - [1 a 4 lignes, resultat visible d'abord, pas la methode]
 
-Impact client :
+Impact [client / eleve / equipe, selon le destinataire] :
 - [qui est concerne et ce qui change pour lui. Retirer la section si personne n'est concerne]
 
 A savoir :
-- [risque, point ouvert, ou decision qui attend Geoffrey. Retirer si rien]
+- [risque, point ouvert, ou decision qui attend le destinataire. Retirer si rien]
 
 Demain :
 - [1 ou 2 lignes]
@@ -60,14 +68,16 @@ Demain :
 
 ### 4. Regles de redaction
 - Une ligne = un fait. Pas de paragraphe.
-- Des chiffres des qu'il y en a (nombre de clients touches, de prospects, de jours d'arret).
+- Des chiffres des qu'il y en a (nombre de clients touches, de prospects, de jours d'arret, nombre de pages).
 - Le resultat en premier, la cause ensuite si utile.
 - Rien de vendu comme fini tant que ce n'est pas teste et en ligne. Dire "construit, pas encore en ligne" si c'est le cas.
-- Si une decision appartient a Geoffrey, la poser comme une question fermee.
+- Si une decision appartient au destinataire, la poser comme une question fermee.
 - Si la journee n'a rien de presentable, le dire en une ligne plutot que de remplir.
 
 ### 5. Apres la sortie
-Proposer en une phrase une version 3 lignes pour un message vocal ou un point rapide. Ne la produire que si Nicolas la demande.
+Deux phrases maximum sous le bloc :
+- rappeler pour qui il a ete ecrit, et proposer de le refaire pour un autre destinataire ;
+- proposer une version 3 lignes pour un message vocal ou un point rapide. Ne la produire que si Nicolas la demande.
 
 ## Ce que ce skill ne fait pas
 - Ne cree aucun fichier, ne touche ni au LOGBOOK ni a la ROADMAP (c'est `log` / `close`)
