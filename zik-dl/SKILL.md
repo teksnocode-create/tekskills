@@ -119,3 +119,41 @@ Les morceaux introuvables restent dans Airtable (checkbox non cochée) pour que 
 - **Pas de fichiers qualité inférieure** : si les seuls résultats disponibles ne sont pas en 320kbps, signale-le à Nico plutôt que de télécharger du 128kbps.
 - **En cas de problème avec SoulseekQt** (app fermée, fenêtre introuvable, erreur réseau) : signaler le problème et arrêter proprement en indiquant où on en était.
 - **Rythme** : prendre un screenshot après chaque action clé (search lancé, résultats apparus, double-clic, transfer confirmé) — ne pas cliquer à l'aveugle.
+
+---
+
+## Ce qui a été testé sur le Mac mini-de-nico le 2026-08-18
+
+Test mené depuis Claude Code (terminal), pas depuis Claude Desktop. Résultats mesurés, pas supposés.
+
+### Les outils `computer_*` n'existent pas dans Claude Code
+`computer_resolve_access`, `computer_screenshot`, `computer_open_application` sont propres à Claude Desktop. Les étapes 2 et 3 ci-dessus ne tournent pas dans un terminal. L'équivalent y est AppleScript via `osascript`, plus `screencapture` et `cliclick`.
+
+### SoulseekQt n'a aucun dictionnaire AppleScript
+Aucun `.sdef`, aucune clé de scripting dans son `Info.plist`. Le pilotage propre par commandes est exclu. Seule reste l'accessibilité (System Events), qui exige d'accorder l'Accessibilité au Terminal dans Réglages Système, et de **relancer le Terminal après** : un processus démarré avant l'autorisation ne l'obtient pas.
+
+### Ce qui marche par accessibilité
+Chemin de la fenêtre : `UI element 1 of window 1` contient deux groupes, le panneau de recherche et la barre Manual Searches.
+
+- **Onglets nommés et cliquables** : Transfers, Rooms, Chat, Search, Users, Browse, Options. Plus besoin de cliquer à des coordonnées.
+- **Compteur de transferts lisible** dans le titre de l'onglet, sous la forme `Transfers [0/0]`. Il confirme qu'un téléchargement est parti sans prendre de capture d'écran.
+- **Champ de recherche** : `UI element 2 of UI element 1 of UI element 1 of UI element 1 of window 1`. On y écrit avec `set value`.
+- **Bouton Search** : `UI element 2` du panneau.
+- **Colonnes de résultats nommées** : User, Free, K/s, Folder, File, Size, Attributes.
+
+### Ce qui ne marche pas, et qui bloque l'automatisation complète
+**Les lignes de résultats ne sont pas exposées.** Vérifié le 18/08 : recherche « Bicep Glue » lancée, résultats bien visibles à l'écran, et `count of rows` retourne 0. Qt dessine la table sans la publier à l'accessibilité.
+
+Conséquence directe : choisir le bon MP3 320kbps ne peut se faire qu'en analysant une capture d'écran, puis en cliquant à des coordonnées. C'est la partie fragile, et elle le restera.
+
+### Piège du champ de recherche
+`set value` ne remplace pas toujours le contenu précédent, il se mélange avec. Vécu le 18/08 : « Bicep Glue » est parti en « Bicep Gluet me n ». **Toujours vider le champ (`set value of tf to ""`), attendre, écrire, puis relire la valeur et vérifier qu'elle est exacte avant de cliquer sur Search.**
+
+### Bug connu, signalé par Nico
+Sur les morceaux qui retournent trop de fichiers, SoulseekQt bugue et s'arrête. Parade à appliquer : ne jamais lancer une recherche trop large, et préférer des termes précis (artiste + titre) plutôt qu'un seul mot.
+
+### La vraie solution à étudier avant d'aller plus loin
+`slskd`, un client Soulseek qui expose une **API REST**. Il supprime tout le pilotage d'interface : recherche, sélection et téléchargement deviennent des appels HTTP, donc scriptables depuis n8n comme n'importe quelle intégration. À évaluer avant d'investir davantage dans l'automatisation de la fenêtre.
+
+### Dépendance non satisfaite
+Le MCP Airtable (`mcp__Airtable__*`) n'est pas connecté à Claude Code. Il fournit la liste des morceaux et coche « Deja dans collection ». Sans lui, l'étape 1 et l'étape 3e ne tournent pas.
