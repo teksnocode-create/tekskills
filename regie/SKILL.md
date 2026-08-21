@@ -1,11 +1,11 @@
 ---
 name: regie
-description: Prépare la régie musicale d'un événement (mariage, soirée) pour Nico. À partir d'un CSV de playlist, croise les morceaux avec la collection Serato sur le disque SWIT, crée la crate Serato correspondante, et pousse les morceaux manquants dans Airtable. TOUJOURS déclencher dès que l'utilisateur tape "/regie", "regie", "régie", "prépare la régie", "playlist mariage", "nouvelle playlist événement", ou fournit un CSV de morceaux pour un événement.
+description: Prépare la régie musicale d'un événement (mariage, soirée) pour Nico. À partir d'un CSV de playlist, croise les morceaux avec la collection audio du disque SWIT, crée le dossier de l'événement dans "++ MARIAGE " avec un sous-dossier Serato contenant les fichiers trouvés, et pousse les morceaux manquants dans Airtable. Ne touche JAMAIS à la bibliothèque Serato. TOUJOURS déclencher dès que l'utilisateur tape "/regie", "regie", "régie", "prépare la régie", "playlist mariage", "nouvelle playlist événement", ou fournit un CSV de morceaux pour un événement.
 ---
 
 # Régie — préparation musicale d'un événement
 
-Chaîne complète : CSV de playlist → crate Serato sur le disque → morceaux manquants dans Airtable.
+Chaîne complète : CSV de playlist → dossier de l'événement sur le disque → morceaux manquants dans Airtable.
 
 ## Règle d'or
 
@@ -13,11 +13,21 @@ Chaîne complète : CSV de playlist → crate Serato sur le disque → morceaux 
 
 | Situation | Destination |
 |---|---|
-| Présent dans la collection | Crate Serato uniquement |
+| Présent dans la collection | Dossier de l'événement uniquement |
 | Absent de la collection | Airtable uniquement |
 | Correspondance incertaine | **Ni l'un ni l'autre** tant que Nico n'a pas tranché |
 
 Ne jamais ajouter dans Airtable un morceau que Nico possède déjà. C'est le point sur lequel il a explicitement insisté.
+
+## Interdiction Serato
+
+**Ce skill ne lit ni n'écrit rien dans `_Serato_`.** Pas de crate, pas de `database V2`, pas de `location.sqlite`, pas de sauvegarde de bibliothèque. Le disque est vu comme un simple arbre de fichiers audio.
+
+Décidé le 2026-08-21 : la manipulation de la bibliothèque Serato est le seul endroit du skill qui pouvait casser la collection, pour un gain nul par rapport à un dossier de fichiers que Nico glisse lui-même dans Serato.
+
+L'ancienne implémentation (`serato_lib.py`, `serato-format.md`) est conservée dans `_archive/` pour l'historique. **Ne pas la réutiliser.**
+
+Conséquence à assumer : sans les tags de la base Serato, le matching repose sur les noms de fichiers, qui sont irréguliers. Le taux d'incertains est plus élevé qu'avant, et c'est voulu — un incertain se tranche en 5 secondes, un mauvais morceau en soirée ne se rattrape pas.
 
 ---
 
@@ -31,11 +41,11 @@ Le skill tourne indifféremment depuis l'app Claude (desktop/mobile) ou depuis C
 | Racine du disque | `$HOME/mnt/SWIT` | `/Volumes/SWIT` |
 | Lire un fichier | `device_stage_files` | `Read` / `Bash` |
 | Écrire un fichier | `SendUserFile` → `device_commit_files` | `Write` / `Bash` |
-| Lancer le script | non | `python3 scripts/serato_lib.py` importable directement |
+| Lancer le script | non | `python3`, `scripts/collection.py` importable |
 
 **Déterminer le contexte au démarrage :** si les outils `device_*` sont disponibles, on est dans l'app. Sinon, on est en Claude Code — vérifier `/Volumes/SWIT` avec `ls`.
 
-Dans les étapes qui suivent, les blocs marqués **[App Claude]** et **[Claude Code]** ne concernent que le contexte détecté. Tout le reste s'applique dans les deux cas.
+En App Claude, la copie de 150 fichiers audio est lente et peu fiable. **Privilégier Claude Code pour l'étape 4** ; si Nico est sur mobile, faire les étapes 0 à 3 et 5, puis lui livrer la liste des fichiers à copier et lui dire de relancer le skill sur le poste fixe.
 
 ---
 
@@ -45,11 +55,11 @@ Dans les étapes qui suivent, les blocs marqués **[App Claude]** et **[Claude C
 
 > « Quel est le nom exact de l'événement ? »
 
-Format libre — reprendre **exactement** ce que Nico écrit, sans reformater, sans corriger la casse, sans réordonner. Exemple : `2026 - MANON & Guillaume`.
+**Convention en place sur le disque : `AAAA Prénom & Prénom`.** Exemples réels : `2026 Manon & Guillaume`, `2026 Laura & Fabio`, `2026 Mathieu & Cassandre`. Proposer ce format à Nico, et reprendre **exactement** ce qu'il valide, sans reformater, sans corriger la casse, sans réordonner.
 
 Ce nom devient la référence unique, réutilisée telle quelle :
 
-- nom de la crate Serato
+- nom du dossier de l'événement
 - champ `Event` dans Airtable
 - nom des fichiers de travail et du récapitulatif
 
@@ -62,8 +72,8 @@ Le relire à Nico pour confirmation avant de continuer. Une faute ici se propage
 La collection est sur le disque externe **SWIT**.
 
 ```
-/Volumes/SWIT/++ ZIK  Collection/     <- les fichiers audio (attention: DEUX espaces après "ZIK")
-/Volumes/SWIT/_Serato_/               <- la bibliothèque Serato
+/Volumes/SWIT/++ ZIK  Collection/              <- les fichiers audio (attention: DEUX espaces après "ZIK")
+/Volumes/SWIT/++ ZIK  Collection/++ MARIAGE /  <- un dossier par événement (attention: espace FINAL)
 ```
 
 **[App Claude]** Si le dossier n'est pas connecté, utiliser `device_request_folder_access` sur `/Volumes/SWIT`. S'il est introuvable, le disque n'est pas branché — s'arrêter et le demander.
@@ -71,153 +81,109 @@ La collection est sur le disque externe **SWIT**.
 **[Claude Code]** Vérifier directement :
 
 ```bash
-ls -d /Volumes/SWIT/_Serato_ "/Volumes/SWIT/++ ZIK  Collection"
+ls -d "/Volumes/SWIT/++ ZIK  Collection" "/Volumes/SWIT/++ ZIK  Collection/++ MARIAGE "
 ```
 
 Si ça échoue, le disque n'est pas branché — s'arrêter et le demander. Vérifier aussi qu'il n'est pas monté en double (`ls -d /Volumes/SWIT*` : la présence de `SWIT 1` est un problème, voir Pièges connus).
 
-**Vérifier aussi que Serato est fermé** (voir Étape 4). On peut lire avec Serato ouvert, jamais écrire.
+**Serato peut rester ouvert.** On n'écrit rien dans sa bibliothèque, et les fichiers copiés vont dans un dossier qu'il ne surveille pas.
 
 ---
 
-## Étape 2 — Lire la collection
-
-Deux fichiers à lire :
-
-```
-_Serato_/database V2
-_Serato_/Library/location.sqlite
-```
-
-**[App Claude]** Les récupérer avec `device_stage_files`, puis les traiter en local.
-
-**[Claude Code]** Les lire directement sur le disque, sans copie :
+## Étape 2 — Indexer la collection
 
 ```python
 import sys; sys.path.insert(0, "scripts")
-import serato_lib as s
-paths  = s.read_database_v2("/Volumes/SWIT/_Serato_/database V2")
-assets = s.read_assets("/Volumes/SWIT/_Serato_/Library/location.sqlite")
+import collection as c
+
+index = c.index_collection()      # ~8 600 fichiers, environ 10 secondes
 ```
 
-La lecture est sans risque même si Serato est ouvert. Ouvrir `location.sqlite` en lecture seule (`file:...?mode=ro`) si Serato tourne, pour éviter de poser un verrou.
+Le dossier `++ MARIAGE ` est **exclu** de l'index : il contient les copies déjà faites pour d'autres événements, pas la collection de référence. Sans cette exclusion, un morceau copié pour Laura & Fabio serait proposé comme source pour le mariage suivant, et les doublons s'empileraient.
 
-Dans les deux cas, le traitement passe par `scripts/serato_lib.py` (voir `references/serato-format.md` pour le détail du format).
-
-Ordres de grandeur au moment de l'écriture du skill, à titre de repère : environ 9 500 morceaux, 80 crates, 10 000 fichiers audio.
+Ordre de grandeur au moment de l'écriture du skill, à titre de repère : environ 8 600 fichiers audio, 19 dossiers de premier niveau, 11 événements déjà traités.
 
 ---
 
 ## Étape 3 — Croiser le CSV avec la collection
 
-Le CSV vient d'un export de playlist Spotify. Format variable — s'adapter aux colonnes présentes, chercher artiste et titre quel que soit leur intitulé.
+Le CSV vient d'un export de playlist Spotify. Format variable — `read_playlist()` cherche les colonnes artiste et titre quel que soit leur intitulé.
 
-### Le matching doit être tolérant
+```python
+lignes = c.read_playlist("playlist.csv")
+res    = c.match_all(lignes, index)
+```
 
-Les tags de la collection sont irréguliers. Cas réels observés :
+### Le matching est tolérant, mais prudent
 
-- champ artiste vide, tout dans le titre : `toto - Eye of the tiger`
+Les noms de fichiers sont irréguliers. Cas réels observés :
+
+- artiste absent du nom : `01 - One More Time.mp3`
 - séparateurs exotiques : `SURVIVOR : Eye Of The Tiger`
 - casse incohérente : `robot rock` / `Robot Rock`
 - préfixes de piste : `02 - Aerodynamic.mp3`, `114 - I Want The Eye Of The Tiger.mp3`
+- remix déguisé sans le mot remix : `Matroda x Daft Punk - One More Time.mp3`
 
-Normaliser des deux côtés avant comparaison : minuscules, accents supprimés, ponctuation supprimée, préfixes numériques retirés, et **toujours tester aussi la concaténation `artiste + titre`** contre le titre seul, à cause des champs artiste vides.
+`normalise()` gère minuscules, accents, ponctuation et préfixes numériques des deux côtés.
 
 ### Trois catégories de sortie
 
-- **Trouvé** — correspondance nette sur artiste + titre normalisés
+- **Trouvé** — un seul fichier, tous les mots du titre présents, l'artiste présent, aucune mention de version
 - **Manquant** — aucune correspondance plausible
-- **Incertain** — correspondance partielle, ou version différente
+- **Incertain** — tout le reste : plusieurs candidats, artiste absent du nom, ou mention de version
 
-Un titre est **incertain**, jamais classé d'office, quand le fichier trouvé porte une mention absente du CSV : `Live`, `Remix`, `Edit`, `Radio Edit`, `Extended`, `Instrumental`, `Acoustic`, `Cover`, `Karaoke`, ou une année/version différente.
+Un titre est **incertain**, jamais classé d'office, quand le fichier porte une mention absente du CSV : `Live`, `Remix`, `Edit`, `Radio Edit`, `Extended`, `Instrumental`, `Acoustic`, `Cover`, `Karaoke`, ou les marqueurs isolés `x`, `vs`, `bootleg`, `rework`, `flip`, `dj`.
 
 Exemple : le CSV demande `Bamboléo – Gipsy Kings`, la collection contient `Gipsy Kings - Bamboleo (Live 1990).mp3`. → **incertain**. Mettre une version live dans une playlist de mariage est une erreur coûteuse.
 
 ### Soumettre les incertains AVANT d'écrire
 
-Présenter la liste à Nico sous forme de tableau : ce que demande le CSV, ce qui a été trouvé, ce qui diffère. Attendre son arbitrage. **Aucune écriture disque ou Airtable avant sa réponse.**
+Présenter la liste à Nico sous forme de tableau : ce que demande le CSV, ce qui a été trouvé, ce qui diffère. Attendre son arbitrage. **Aucune copie disque ou insertion Airtable avant sa réponse.**
 
-Compter environ 10 à 20 % de cas ambigus sur un CSV de mariage typique.
+Compter 25 à 40 % de cas ambigus sur un CSV de mariage typique, la plupart réglés d'un coup d'œil.
+
+Un incertain tranché « oui » rejoint les trouvés, un incertain tranché « non » rejoint les manquants. Aucun ne reste en suspens.
 
 ---
 
-## Étape 4 — Créer la crate Serato
+## Étape 4 — Créer le dossier et copier les fichiers
 
-### Préalables non négociables
-
-1. **Serato doit être complètement fermé.** Il garde sa bibliothèque en mémoire et réécrit ses fichiers en quittant : il écraserait la crate, ou la supprimerait. Demander confirmation explicite à Nico, ne jamais le supposer.
-2. **Sauvegarder `_Serato_` avant toute écriture.** Environ 52 Mo, quelques secondes :
-
-```bash
-# [App Claude]
-cp -R "$HOME/mnt/SWIT/_Serato_" "$HOME/mnt/SWIT/SAUVEGARDE_Serato_AAAAMMJJ"
-
-# [Claude Code]
-cp -R "/Volumes/SWIT/_Serato_" "/Volumes/SWIT/SAUVEGARDE_Serato_$(date +%Y%m%d)"
-```
-
-Confirmer que la sauvegarde existe et pèse le bon volume (`du -sh`) avant d'écrire quoi que ce soit.
-
-Nommer la sauvegarde **`SAUVEGARDE_Serato_...`** et surtout **pas** `_Serato_...` : Serato repère ses bibliothèques en cherchant les dossiers commençant par `_Serato_` à la racine des volumes, et un dossier mal nommé introduit une ambiguïté.
-
-### Emplacement de la crate
-
-Les crates de mariage sont rangées sous `TOUS > #CLUB > ++ MARIAGE `. La hiérarchie est encodée dans le **nom du fichier**, avec `%%` comme séparateur de niveau :
+### Ce qui est créé
 
 ```
-_Serato_/Subcrates/TOUS%%#CLUB%%++ MARIAGE %%<NOM EVENEMENT>.crate
+/Volumes/SWIT/++ ZIK  Collection/++ MARIAGE /<NOM EVENEMENT>/
+└── Serato/          <- les fichiers audio trouvés, copiés depuis la collection
 ```
 
-Attention : `++ MARIAGE ` porte un **espace final** dans la hiérarchie. Reprendre le motif exact d'une crate existante plutôt que de le retaper — lister `Subcrates/` et copier le préfixe d'un mariage déjà en place.
+Le sous-dossier s'appelle `Serato` par convention (c'est ce que Nico glisse ensuite dans Serato à la main). Les dossiers `Regie/` et `News/` que Nico crée parfois à côté ne sont **pas** du ressort du skill : ne pas les créer, ne pas y toucher.
 
-### Écriture
+### Copie, jamais déplacement
 
-Le fichier se génère dans les deux cas avec `build_crate()` de `scripts/serato_lib.py`, qui refuse d'écrire si un chemin n'existe pas à l'identique dans `database V2`.
-
-**[App Claude]** Déposer le binaire produit via `SendUserFile` → `device_commit_files`.
-
-**[Claude Code]** Écrire directement dans `Subcrates/`. Passer par Python en binaire, jamais par `Write` (le contenu n'est pas du texte) :
+Les fichiers sont **copiés**, la collection d'origine n'est jamais modifiée ni allégée. `shutil.copy2` conserve les dates.
 
 ```python
-import sys; sys.path.insert(0, "scripts")
-import serato_lib as s
+plan = c.copier(res["trouves"], nom_evenement, dry_run=True)   # verifier d'abord
+print(len(plan["copies"]), "a copier,", len(plan["deja_la"]), "deja presents")
 
-ROOT = "/Volumes/SWIT/_Serato_"
-reference = s.read_database_v2(f"{ROOT}/database V2")
-
-# Reprendre le prefixe d'une crate mariage existante plutot que de le retaper
-import os
-existants = [f for f in os.listdir(f"{ROOT}/Subcrates") if "MARIAGE" in f]
-prefixe = existants[0].rsplit("%%", 1)[0]          # ex. "TOUS%%#CLUB%%++ MARIAGE "
-
-cible = f"{ROOT}/Subcrates/{prefixe}%%{nom_evenement}.crate"
-blob  = s.build_crate(chemins_trouves, reference)
-with open(cible, "wb") as fh:
-    fh.write(blob)
+plan = c.copier(res["trouves"], nom_evenement)                 # puis executer
 ```
 
-Ne jamais écraser une crate existante : si `cible` existe déjà, s'arrêter et demander à Nico.
+### Garde-fous
 
-**La règle absolue du format est dans `references/serato-format.md` — la lire avant d'écrire.** En résumé : ne jamais fabriquer un chemin à partir d'un listing disque, toujours réutiliser tel quel le chemin déjà présent dans `database V2`. Serato encode certains caractères dans une zone Unicode privée, et un chemin reconstruit à la main casse silencieusement.
+1. **Toujours passer par `dry_run=True` d'abord** et annoncer le nombre de fichiers à Nico avant de copier pour de bon.
+2. **Si le dossier de l'événement existe déjà**, s'arrêter et demander. Un dossier existant veut dire que la régie a déjà été préparée, ou que le nom est celui d'un autre événement.
+3. **Un fichier déjà présent dans `Serato/` n'est jamais écrasé** — il est compté dans `deja_la` et signalé.
+4. Vérifier la place libre avant de lancer : environ 10 Mo par morceau, donc ~1,5 Go pour 150 titres.
 
 ### Vérification obligatoire
 
-Après écriture, relire le fichier **depuis le disque** (pas depuis la mémoire) et le passer à `verify_crate()` :
+Après copie, recompter **depuis le disque** :
 
-```python
-with open(cible, "rb") as fh:
-    relu = fh.read()
-print(s.verify_crate(relu, chemins_trouves, reference))
+```bash
+ls "/Volumes/SWIT/++ ZIK  Collection/++ MARIAGE /<NOM EVENEMENT>/Serato" | wc -l
 ```
 
-Les cinq contrôles doivent tous passer :
-
-- `nombre_morceaux` == `attendu`
-- `ordre_conforme` True
-- `entete_441_octets` True
-- `chemins_tous_connus` True
-
-Puis demander à Nico de relancer Serato et de confirmer que les morceaux s'affichent — pas de points d'interrogation, BPM et clés présents.
+Le compte doit égaler `trouvés` (incertains validés inclus). Un écart veut dire que deux morceaux différents portaient le même nom de fichier : les identifier et les renommer, ne pas laisser passer.
 
 ---
 
@@ -238,6 +204,8 @@ Table **💿 Tracks** — `tbl9N0v65ab5GuI6R`
 
 Avant d'insérer, chercher les doublons : un morceau déjà présent dans la table pour un autre événement n'a pas besoin d'être recréé — signaler à Nico plutôt que dupliquer.
 
+Une fois les morceaux téléchargés (skill `zik-dl`), relancer le skill sur le même CSV rattrape ce qui manquait : les nouveaux fichiers sont dans la collection, donc reclassés en trouvés et copiés à leur tour.
+
 ---
 
 ## Étape 6 — Récapitulatif
@@ -246,19 +214,19 @@ Livrer un résumé court :
 
 - nom de l'événement
 - nombre de morceaux du CSV
-- trouvés → crate (avec le chemin du fichier créé)
+- trouvés → copiés (avec le chemin du dossier créé et le compte vérifié sur disque)
 - manquants → Airtable (nombre de lignes créées)
 - incertains arbitrés, et dans quel sens
-- emplacement de la sauvegarde
+- fichiers déjà présents non recopiés, s'il y en a
 
 ---
 
 ## Pièges connus
 
-**Serato ouvert pendant l'écriture** — cause d'échec la plus fréquente. Il réécrit `database V2`, `neworder.pref` et les `.crate` en quittant.
+**Le dossier des mariages doit rester hors de l'index.** Sinon les copies d'un événement précédent deviennent la source du suivant, et la collection de référence se dilue. `index_collection()` l'exclut déjà — ne pas contourner.
 
-**Chemins reconstruits à la main** — casse silencieusement les morceaux des dossiers contenant des caractères spéciaux (`**** ALBUM ELECTRO`, `++ MARIAGE `). Plus de 2 000 fichiers concernés dans la collection. Toujours réutiliser les chemins bruts de `database V2`.
+**Deux espaces après « ZIK », un espace final après « MARIAGE ».** Les deux chemins sont piégeux et une faute de frappe crée silencieusement un dossier parallèle. Toujours reprendre les constantes de `scripts/collection.py`, jamais les retaper.
 
-**Morceaux en `?` dans Serato, playlists vides** — ce n'est pas une perte de données. Vérifier d'abord que le disque SWIT n'est pas **monté en double** sur le Mac (`SWIT` et `SWIT 1` dans le Finder), ce qui arrive après une éjection brutale : Serato lit alors sa base sur un point de montage et cherche les fichiers sur l'autre. Éjecter, débrancher, rebrancher. Vérifier aussi qu'aucun texte ne traîne dans la barre de recherche de Serato, qui filtre toutes les crates à zéro résultat.
+**Artiste absent du nom de fichier.** C'est le cas le plus fréquent de la collection et la principale source d'incertains. Ne jamais l'automatiser en « trouvé » sous prétexte que le titre suffit : `Flowers` existe en 4 versions dans la collection.
 
-**Un morceau appartient en moyenne à 2 crates**, jusqu'à 7. Toute opération sur un chemin doit être répercutée dans **tous** les fichiers `.crate` qui le contiennent, plus `database V2`, plus `location.sqlite`. Travailler par remplacement de chaîne sur l'ensemble des fichiers, jamais crate par crate.
+**Morceaux en `?` dans Serato, playlists vides** — sans rapport avec ce skill, mais ça arrive à Nico. Vérifier que le disque SWIT n'est pas **monté en double** sur le Mac (`SWIT` et `SWIT 1` dans le Finder), ce qui arrive après une éjection brutale. Éjecter, débrancher, rebrancher. Vérifier aussi qu'aucun texte ne traîne dans la barre de recherche de Serato, qui filtre toutes les crates à zéro résultat.
