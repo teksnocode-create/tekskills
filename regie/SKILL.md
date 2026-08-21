@@ -96,12 +96,20 @@ Si ça échoue, le disque n'est pas branché — s'arrêter et le demander. Vér
 import sys; sys.path.insert(0, "scripts")
 import collection as c
 
-index = c.index_collection()      # ~8 600 fichiers, environ 10 secondes
+index = c.index_collection(exclure=c.dossier_evenement(nom_evenement))
 ```
 
-Le dossier `++ MARIAGE ` est **exclu** de l'index : il contient les copies déjà faites pour d'autres événements, pas la collection de référence. Sans cette exclusion, un morceau copié pour Laura & Fabio serait proposé comme source pour le mariage suivant, et les doublons s'empileraient.
+**Les dossiers des événements passés font partie de l'index**, marqués `source="evenement"`. Mesure du 2026-08-21 sur le disque de Nico : **937 morceaux qu'il possède n'existent QUE dans ces dossiers**, absents de la collection principale. Les exclure les renverrait en manquants dans Airtable et il les retéléchargerait pour rien, en violation directe de la règle d'or.
 
-Ordre de grandeur au moment de l'écriture du skill, à titre de repère : environ 8 600 fichiers audio, 19 dossiers de premier niveau, 11 événements déjà traités.
+Seul le dossier de **l'événement en cours** est exclu, sinon une copie déjà faite se proposerait comme sa propre source.
+
+Un même nom de fichier présent dans plusieurs dossiers est dédoublonné, et la collection principale l'emporte toujours sur une copie d'événement.
+
+Ordre de grandeur au moment de l'écriture du skill, à titre de repère : environ 8 200 fichiers uniques, dont 7 200 dans la collection et 1 000 dans les dossiers d'événements, 11 événements déjà traités. L'index prend une dizaine de secondes.
+
+### Les fichiers `._`
+
+macOS dépose à côté de chaque morceau un fichier de métadonnées portant le **même nom et la même extension**, préfixé `._`. Il y en a 4 072 sur le disque. `index_collection()` les filtre. Sans ce filtre, l'index compte presque le double de ce qu'il contient vraiment et des fichiers non lisibles finissent copiés.
 
 ---
 
@@ -223,7 +231,9 @@ Livrer un résumé court :
 
 ## Pièges connus
 
-**Le dossier des mariages doit rester hors de l'index.** Sinon les copies d'un événement précédent deviennent la source du suivant, et la collection de référence se dilue. `index_collection()` l'exclut déjà — ne pas contourner.
+**Ne pas exclure le dossier des mariages de l'index.** L'erreur a été commise le 2026-08-21 et rattrapée avant tout usage : 937 morceaux ne vivent que là, et les ignorer revenait à les redemander en téléchargement alors que Nico les a déjà. Seul le dossier de l'événement en cours s'exclut.
+
+**Ce que le scan ne voit pas.** Environ 590 morceaux de la base Serato n'ont plus de fichier correspondant sur le disque, dont ~230 qui ont réellement disparu (déplacés ou supprimés hors de Serato). Ils sortiront en manquants. Si Nico affirme posséder un titre classé manquant, c'est la première piste : le fichier a bougé et la base Serato n'a jamais été mise à jour.
 
 **Deux espaces après « ZIK », un espace final après « MARIAGE ».** Les deux chemins sont piégeux et une faute de frappe crée silencieusement un dossier parallèle. Toujours reprendre les constantes de `scripts/collection.py`, jamais les retaper.
 

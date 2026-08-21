@@ -57,28 +57,57 @@ def tokens(texte):
     return [m for m in normalise(texte).split() if m and m not in STOPWORDS]
 
 
-def index_collection(racine=COLLECTION):
+def index_collection(racine=COLLECTION, exclure=None):
     """Parcourt la collection et renvoie une liste de fiches fichier.
 
-    Le dossier des mariages est exclu : il contient des copies deja faites
-    pour d'autres evenements, pas la collection de reference.
+    Les dossiers d'evenements passes sont inclus, avec source="evenement".
+    Mesure du 2026-08-21 : 937 morceaux que Nico possede n'existent QUE la,
+    et pas dans la collection principale. Les exclure les renverrait en
+    manquants dans Airtable et il les retelechargerait pour rien.
+
+    `exclure` : chemin du dossier de l'evenement en cours, a ne pas indexer
+    (sinon la copie deja faite se retrouve proposee comme sa propre source).
     """
     fiches = []
+    exclu = os.path.abspath(exclure) if exclure else None
     for dossier, sous_dossiers, fichiers in os.walk(racine):
-        if os.path.abspath(dossier).startswith(os.path.abspath(MARIAGES)):
+        courant = os.path.abspath(dossier)
+        if exclu and courant.startswith(exclu):
             sous_dossiers[:] = []
             continue
+        source = "evenement" if courant.startswith(os.path.abspath(MARIAGES)) else "collection"
         for nom in fichiers:
             if not nom.lower().endswith(EXTENSIONS):
+                continue
+            # Fichiers AppleDouble : metadonnees macOS portant le meme nom
+            # que le morceau, avec la meme extension. Ce n'est pas de l'audio.
+            # Il y en a 4 072 sur le disque de Nico, soit presque un doublon
+            # par morceau : sans ce filtre, l'index est faux de moitie.
+            if nom.startswith("._"):
                 continue
             base = os.path.splitext(nom)[0]
             fiches.append({
                 "chemin": os.path.join(dossier, nom),
                 "nom": nom,
+                "source": source,
                 "norme": normalise(base),
                 "tokens": set(tokens(base)),
             })
-    return fiches
+    return dedoublonner(fiches)
+
+
+def dedoublonner(fiches):
+    """Un meme nom de fichier present dans plusieurs dossiers d'evenements
+    est le meme morceau copie plusieurs fois. On n'en garde qu'un, en
+    preferant toujours la collection principale a une copie d'evenement.
+    """
+    par_nom = {}
+    for fiche in fiches:
+        cle = normalise(os.path.splitext(fiche["nom"])[0])
+        garde = par_nom.get(cle)
+        if garde is None or (garde["source"] == "evenement" and fiche["source"] == "collection"):
+            par_nom[cle] = fiche
+    return list(par_nom.values())
 
 
 def read_playlist(chemin_csv):
