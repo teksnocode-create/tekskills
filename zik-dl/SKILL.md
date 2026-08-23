@@ -1,159 +1,279 @@
 ---
 name: zik-dl
 description: >
-  Automatise le téléchargement de morceaux depuis SoulseekQt en se basant sur la liste "Zik à Télécharger" d'Airtable (base SOREK). Pour chaque morceau pas encore dans la collection, cherche dans SoulseekQt sur le Mac mini-de-nico, double-clique sur le meilleur MP3 320kbps disponible, puis coche "Deja dans collection" dans Airtable dès que le download est lancé. Utiliser ce skill SYSTÉMATIQUEMENT dès que Nico tape "/zik-dl", "télécharge la zik", "lance le téléchargement", "download zik", "télécharge mes morceaux", "récupère mes morceaux", ou mentionne vouloir récupérer sa liste de morceaux Airtable via Soulseek.
+  Automatise le téléchargement de morceaux depuis SoulseekQt sur CE Mac, à partir de la table "💿 Tracks" d'Airtable (base SOREK). Traite par lots de 50 morceaux pas encore téléchargés et pas déjà marqués introuvables : pilote SoulseekQt en local (screencapture + cliclick + AppleScript), double-clique sur le meilleur MP3 320kbps disponible, coche "Download" dans Airtable dès que le download est lancé. Un morceau sans résultat (ou dont le seul résultat est risqué, ex. nom de fichier contenant une URL) est immédiatement coché "Pas trouvé" pour ne plus être retenté automatiquement. À la fin de chaque lot, vérifie dans "~/Soulseek Downloads/complete" quels morceaux sont réellement arrivés, corrige Airtable, puis nettoie et normalise les fichiers avec le script clean.sh du skill. Utiliser ce skill SYSTÉMATIQUEMENT dès que Nico tape "/zik-dl", "télécharge la zik", "lance le téléchargement", "download zik", "télécharge mes morceaux", "récupère mes morceaux", ou mentionne vouloir récupérer sa liste de morceaux Airtable via Soulseek.
 ---
 
-# Zik Download — Airtable → SoulseekQt
+Base directory de ce skill : `~/.claude/skills/zik-dl`
+
+# Zik Download — Airtable → SoulseekQt (exécution locale sur le Mac de Nico)
 
 ## Ce que ce skill fait
 
-1. Lit la liste des morceaux à télécharger depuis Airtable (vue déjà filtrée)
-2. Pour chaque morceau : ouvre SoulseekQt sur mini-de-nico, cherche, télécharge le meilleur 320kbps
-3. Coche "Deja dans collection" dans Airtable dès que le download est lancé
-4. Retourne un résumé : X téléchargés, Y introuvables sur Soulseek
+1. Lit la liste des morceaux à télécharger depuis la table "💿 Tracks" d'Airtable, en excluant tout morceau déjà coché "Download" ou déjà coché "Pas trouvé"
+2. Traite les morceaux par lots de **50**
+3. Pour chaque morceau : cherche dans SoulseekQt, double-clique sur le meilleur MP3 320kbps, coche "Download" dans Airtable dès que le téléchargement démarre (flèche verte sur la ligne du résultat), puis passe au suivant
+4. Si rien n'apparaît au bout de 10 secondes (ou si le seul résultat est risqué), coche immédiatement "Pas trouvé" et passe au suivant. **Ne jamais retenter un morceau déjà marqué introuvable dans le même run.**
+5. Si un morceau fait planter SoulseekQt : coche "Pas trouvé", relance l'app, continue
+6. Fin de lot : vérifie ce qui est réellement arrivé dans `~/Soulseek Downloads/complete`, décoche "Download" pour les absents
+7. Résumé du lot, puis nettoyage du dossier complete
+
+---
+
+## Étape 0 — Prérequis locaux (à vérifier une seule fois par session)
+
+```bash
+which cliclick || echo "MANQUANT: brew install cliclick"
+ls -d /Applications/SoulseekQt.app
+```
+
+- `cliclick` est **obligatoire** (double-clic et clic à des coordonnées précises). S'il manque, dire à Nico de lancer `brew install cliclick` et s'arrêter là.
+- Le terminal qui exécute Claude Code doit avoir les autorisations macOS **Enregistrement de l'écran** (pour `screencapture`) et **Accessibilité** (pour `cliclick` / System Events). Si un screenshot revient noir ou vide, c'est ça : demander à Nico d'activer la permission dans Réglages > Confidentialité et sécurité.
+
+Dossier de travail pour les screenshots : le scratchpad de la session (voir contexte système), un fichier réutilisé `sk.png`.
 
 ---
 
 ## Étape 1 — Récupérer la liste depuis Airtable
 
-Appelle `mcp__Airtable__list_records_for_table` avec ces paramètres :
-- `baseId` : `appNRzvkpeNfDaHCV`
-- `tableIdOrName` : `tblI2P5qDSBK2MCqb6`
-- `viewId` : `viwONWsOKGoWjVgIC`
+Appelle `mcp__airtable__list_records` :
 
-La vue est déjà filtrée sur "Deja dans collection = Pas trouvé" — inutile d'ajouter un filtre supplémentaire.
-
-Pour chaque record, retiens :
-- `id` : l'identifiant Airtable du record (nécessaire pour la mise à jour)
-- `fields.Name` : le nom du morceau à chercher dans Soulseek
-
-Si la liste est vide → informer Nico ("Tout est déjà dans ta collection !") et s'arrêter là.
-
----
-
-## Étape 2 — Accès à SoulseekQt sur mini-de-nico
-
-**Une seule fois en début de session** (pas à chaque morceau) :
-
-1. Appelle `computer_resolve_access` avec `device: "mini-de-nico"` et `apps: ["SoulseekQt"]`
-2. Appelle `computer_request_access` avec exactement les `apps` retournées par l'étape précédente
-3. Prends un screenshot (`computer_screenshot`) pour voir l'état actuel de l'écran
-4. Si SoulseekQt n'est pas visible → appelle `computer_open_application` avec le nom résolu, puis re-screenshot
-
----
-
-## Étape 3 — Boucle : chercher et télécharger chaque morceau
-
-Traite les morceaux un par un. Pour chaque morceau :
-
-### 3a. Aller sur l'onglet Search
-
-Prends un screenshot. Si l'onglet "Search" de SoulseekQt n'est pas actif, clique dessus.
-
-### 3b. Saisir la recherche
-
-- Triple-clique dans le champ de recherche (pour tout sélectionner/effacer)
-- Tape le `Name` du morceau tel quel depuis Airtable
-- Appuie sur Entrée ou clique sur le bouton "Search"
-
-### 3c. Attendre et analyser les résultats
-
-Attends 6-8 secondes, puis prends un screenshot.
-
-**Cas "aucun résultat"** : la liste de résultats est vide. Essaie une variante simplifiée :
-- Retire les tirets (`-`) et les parenthèses du nom
-- Garde juste artiste + titre principal (supprime les infos de mix/remix si le titre est long)
-- Relance la recherche, attend à nouveau 6-8 sec
-
-Si toujours aucun résultat → morceau introuvable. Passe au suivant sans mettre à jour Airtable. Ajoute-le à la liste des introuvables.
-
-**Cas "résultats présents"** : le filtre par défaut de SoulseekQt (`mp3 iscbr mbr:320`) filtre déjà sur MP3 320kbps. Scroll en haut de la liste. Prends le **premier résultat** dont le nom de fichier correspond bien au morceau cherché. Double-clique dessus pour lancer le téléchargement.
-
-> Pourquoi le premier ? Soulseek trie par disponibilité et vitesse. Le premier résultat cohérent est généralement le meilleur choix. Pas besoin de comparer tous les résultats un par un.
-
-### 3d. Confirmer que le transfer est parti (rapide)
-
-Après le double-clic, clique sur l'onglet "Transfers" et prends un screenshot. Le morceau doit apparaître avec le statut "Downloading" ou "Queued". Si c'est le cas → passe à l'étape suivante.
-
-### 3e. Mettre à jour Airtable
-
-Appelle `mcp__Airtable__update_records_for_table` :
 ```json
 {
   "baseId": "appNRzvkpeNfDaHCV",
-  "tableIdOrName": "tblI2P5qDSBK2MCqb6",
+  "tableId": "tbl9N0v65ab5GuI6R",
+  "fields": ["Name", "Download", "Pas trouvé", "Artistes", "Morceaux"],
+  "filterByFormula": "AND({Download} = 0, {Pas trouvé} = 0)",
+  "maxRecords": 50
+}
+```
+
+> Le serveur Airtable MCP actuel utilise `filterByFormula` (formule Airtable, noms de champs entre accolades) et `maxRecords`. Les anciens paramètres `filters` / `pageSize` / `fieldIds` n'existent plus.
+
+Pour connaître le nombre total restant (pour le résumé de fin), refais le même appel sans `maxRecords` et avec `fields: ["Name"]`, puis compte les records.
+
+Pour chaque record, retiens :
+- `id` : identifiant Airtable du record
+- `fields.Name` (ou `Artistes` + `Morceaux` si vide) : le nom à chercher dans Soulseek
+
+Si la liste est vide → informer Nico ("Tout est déjà téléchargé ou marqué introuvable !") et s'arrêter.
+
+---
+
+## Étape 2 — Ouvrir SoulseekQt (une seule fois en début de session)
+
+```bash
+open -a SoulseekQt
+sleep 4
+screencapture -x -D 1 -o "$SCRATCH/sk.png"
+```
+
+**Le focus ne se prend PAS avec `tell application "SoulseekQt" to activate`** (app Qt, l'ordre est ignoré). Utilise systématiquement :
+
+```bash
+osascript -e 'tell application "System Events" to set frontmost of process "SoulseekQt" to true'
+```
+
+Config écran mesurée sur cette machine : deux écrans 1920x1080, **ratio 1:1, aucune division par 2 à faire** sur les coordonnées lues dans le screenshot. SoulseekQt s'ouvre sur le **display 1** (`screencapture -D 1`). Si Nico déplace la fenêtre, recale avec :
+
+```bash
+osascript -e 'tell application "System Events" to tell process "SoulseekQt" to get position of window 1 & size of window 1'
+```
+
+Coordonnées de référence (fenêtre à sa position habituelle 194,82 taille 1610x779) :
+- champ de recherche : `845,238`
+- onglet Search : `1015,159`
+- première ligne de résultats : vers `y=340`, les lignes suivantes espacées d'environ 18 px
+
+**Terminal reprend le focus pendant les `sleep`.** Donc : refais un `set frontmost` juste avant chaque frappe ET juste avant chaque `screencapture`, sinon tu tapes dans le terminal et tu photographies la mauvaise fenêtre.
+
+---
+
+## Étape 3 — Boucle : chercher et télécharger chaque morceau du lot
+
+### 3a. Focus sur l'app et l'onglet Search
+
+```bash
+osascript -e 'tell application "System Events" to set frontmost of process "SoulseekQt" to true'
+```
+Si l'onglet Search n'est pas actif sur le dernier screenshot : `cliclick c:1015,159`.
+
+### 3b. Saisir la recherche
+
+Construis la requête ainsi, dans cet ordre :
+
+1. **Un seul artiste : le premier de la liste `Artistes`.** Une requête à rallonge ne matche aucun nom de fichier réel. `Anuel AA, Daddy Yankee, KAROL G, J Balvin, Ozuna China` → 0 résultat ; `Anuel AA China` → le morceau en tête de liste. Idem `Heuss L'enfoiré Aristocrate` → `Heuss Aristocrate`.
+2. **Supprime virgules, points, parenthèses et apostrophes.** Ce qui suit l'apostrophe se coupe aussi si le mot devient bancal (`Heuss L'enfoiré` → `Heuss`).
+3. **Retire les mentions feat./remix** sauf si c'est justement la version cherchée.
+
+Résultat visé : `<premier artiste> <titre>`, 2 à 5 mots. Si ça ne donne rien, ce n'est pas la requête qu'il faut rallonger — passe au suivant et coche "Pas trouvé".
+
+```bash
+cliclick c:<x_champ>,<y_champ>
+osascript -e 'tell application "System Events" to keystroke "a" using command down'
+osascript -e 'tell application "System Events" to keystroke "<requête nettoyée>"'
+osascript -e 'tell application "System Events" to key code 36'   # Entrée
+```
+
+> Passe la requête via une variable shell entre guillemets simples pour éviter que les apostrophes cassent l'AppleScript ; supprime aussi les apostrophes de la requête, elles ne servent à rien pour Soulseek.
+
+### 3c. Attendre et analyser les résultats
+
+```bash
+sleep 10 && screencapture -x -o "$SCRATCH/sk.png"
+```
+Puis Read `sk.png`.
+
+**Aucun résultat** : coche "Pas trouvé" dans Airtable (étape 3f), ajoute-le à la liste des introuvables, passe au suivant. Pas de variante, pas de deuxième essai.
+
+**Seul résultat risqué** (nom de fichier contenant une URL type "www.xxx.com/.org", ou tout ce qui ressemble à un lien) : ne pas cliquer, coche "Pas trouvé", passe au suivant.
+
+**Résultats présents** : le filtre par défaut de SoulseekQt (`mp3 iscbr mbr:320`, visible en bas à droite) filtre déjà en MP3 320kbps.
+
+La liste est un **arbre** (Expand Folders / Expand Users activés) : les lignes "user" et "dossier" ne sont PAS téléchargeables. Ne double-clique que sur une ligne qui porte un **nom de fichier dans la colonne "File"** et un débit dans "Attributes" (ex. `320kbps, 4m42s`).
+
+Prends le **premier résultat fichier** dont le nom correspond au morceau cherché et double-clique dessus :
+
+```bash
+cliclick dc:<x_ligne>,<y_ligne>
+```
+
+> Pourquoi le premier ? Soulseek trie par disponibilité et vitesse. Le premier résultat cohérent est généralement le meilleur choix.
+
+### 3d. Confirmer que le download est lancé
+
+```bash
+sleep 2 && screencapture -x -o "$SCRATCH/sk.png"
+```
+Une flèche verte doit apparaître sur la ligne cliquée. Dès qu'elle est visible → coche "Download" (3f) et passe au suivant. **Ne pas aller sur l'onglet Transfers pendant la boucle** — la vérification réelle se fait en fin de lot.
+
+### 3e. Si SoulseekQt plante
+
+```bash
+pgrep -x SoulseekQt || open -a SoulseekQt
+```
+1. Coche "Pas trouvé" pour le morceau en cours
+2. Relance l'app, attends qu'elle soit prête (screenshot de contrôle), recale les coordonnées si la fenêtre a bougé
+3. Continue avec le morceau suivant
+
+### 3f. Mettre à jour Airtable
+
+`mcp__airtable__update_records` — **10 records maximum par appel**, donc regroupe ou envoie au fil de l'eau :
+
+```json
+{
+  "baseId": "appNRzvkpeNfDaHCV",
+  "tableId": "tbl9N0v65ab5GuI6R",
   "records": [
-    {
-      "id": "<record_id du morceau>",
-      "fields": {
-        "Deja dans collection": true
-      }
-    }
+    { "id": "<record_id>", "fields": { "Download": true } }
   ]
 }
 ```
 
-> Marquer dans Airtable **dès que le download est lancé**, pas après la fin. SoulseekQt gère la file d'attente en autonomie.
+Pour un introuvable : `{ "fields": { "Pas trouvé": true } }`.
+
+> Marquer **dès que le download est lancé**, pas après la fin. SoulseekQt gère la file d'attente tout seul.
+
+### 3g. Ne PAS fermer les onglets — travailler par sous-lots de 8
+
+Chaque recherche empile un onglet sous le champ de saisie. **Ne cherche pas à les fermer un par un : ça ne marche pas.** Les croix ⊗ se recalent après chaque fermeture, donc au-delà du premier clic les suivants ratent, et un clic raté fait partir la frappe suivante dans la liste de résultats (morceau sauté sans erreur visible).
+
+À la place : **le lot de 50 se traite en sous-lots de 8 morceaux.** Au 8e (l'app plante vers 8-9 onglets, constaté), on redémarre proprement :
+
+```bash
+# fin de sous-lot : laisser les transferts en file se terminer AVANT de tuer l'app
+sleep 120
+pkill -x SoulseekQt; sleep 3; open -a SoulseekQt; sleep 14
+```
+
+> **Le redémarrage tue les téléchargements encore en file d'attente.** C'est la première cause de morceaux « lancés mais jamais arrivés ». D'où l'attente de 2 minutes avant chaque redémarrage : elle laisse partir ce qui est en cours. Ne jamais redémarrer juste après un double-clic.
+
+Après redémarrage : la fenêtre revient à sa position par défaut (194,82) et l'app affiche "Away" pendant ~10 s — les recherches marchent quand même. Recale les coordonnées avec un screenshot avant de reprendre.
+
+### 3h. Le clic dans le champ de recherche rate une fois sur dix
+
+Symptôme : le screenshot montre **la liste entière surlignée en orange** et l'onglet précédent toujours actif. Le clic n'a pas donné le focus au champ, donc `Cmd+A` a sélectionné la liste et la frappe est partie dans le vide.
+
+Parade systématique : **cliquer deux fois dans le champ, espacés de 2 secondes** (deux clics simples, pas un double-clic) :
+
+```bash
+cliclick c:845,238; sleep 2; cliclick c:845,238; sleep 1
+```
+
+Si le symptôme apparaît quand même, refais la saisie du morceau au lieu de continuer — sinon il est compté comme traité alors qu'il ne l'a pas été.
 
 ---
 
-## Étape 4 — Résumé final
+## Étape 4 — Vérification de fin de lot
 
-Affiche un récap clair :
+```bash
+ls -1 ~/Soulseek\ Downloads/complete
+find ~/Soulseek\ Downloads/complete -type f \( -iname '*.mp3' -o -iname '*.flac' -o -iname '*.wav' -o -iname '*.m4a' \) | sed 's|.*/||'
 ```
-✅ 8 morceaux lancés en téléchargement
+
+1. Pour chaque morceau coché "Download" à l'étape 3f, cherche un fichier correspondant par correspondance approximative (artiste + mots-clés du titre, en ignorant ponctuation/casse/featuring)
+2. Trouvé → reste coché
+3. Pas trouvé → **décoche "Download"** (`{ "Download": false }`) pour qu'il repasse au lot suivant
+
+> Le matching étant approximatif, mieux vaut un faux négatif (retenté au lot suivant, sans conséquence) qu'un faux positif.
+
+---
+
+## Étape 4 bis — Second passage sur les introuvables (sans le filtre 320)
+
+La majorité des « Pas trouvé » ne sont pas absents de Soulseek : leurs résultats remontent en **dossiers sans aucun fichier qui passe le filtre par défaut** `mp3 iscbr mbr:320`. Ça touche surtout les sorties récentes (2024-2025) et les remixes précis (Radio Edit, Bassflow, versions club).
+
+Avant de clore le lot, reprends la liste des morceaux marqués "Pas trouvé" **pendant ce lot** et rejoue-les avec le filtre retiré :
+
+1. Décoche **Default Filter** (case en bas à droite de la fenêtre, vers `1636,772`) ou vide le champ de filtre via le bouton **Clear** (`1505,772`)
+2. Relance chaque requête introuvable, une par une, même boucle qu'à l'étape 3
+3. Cette fois, contrôle le débit dans la colonne **Attributes** : accepte 320kbps VBR et 256kbps, **refuse en dessous de 192kbps** et signale-le à Nico
+4. Un morceau récupéré : décoche "Pas trouvé" et coche "Download"
+5. **Remets le Default Filter** avant de terminer, sinon le prochain lot part sans filtre de qualité
+
+> Sur le premier vrai lot de 50, 10 morceaux ont été marqués introuvables pour cette seule raison — c'est le plus gros gisement de récupération du skill.
+
+---
+
+## Étape 5 — Résumé du lot
+
+```
+✅ 22 morceaux confirmés téléchargés (dossier complete)
+🔄 5 lancés mais pas encore arrivés — Download redécoché, seront retentés au prochain lot
 ❌ 3 introuvables sur Soulseek :
    - Oussema Saffar Midnight Strings - Original Mix
    - Théo Coni José
-   - ...
+⚠️ X morceaux restants dans la table Tracks — dis-moi si j'enchaîne sur le lot suivant
 ```
 
-Les morceaux introuvables restent dans Airtable (checkbox non cochée) pour que Nico puisse les retrouver manuellement.
+Les morceaux "Pas trouvé" ne seront plus proposés automatiquement ; Nico les reprendra en décochant la case quand il veut.
+
+---
+
+## Étape 6 — Nettoyage du dossier complete
+
+Le skill `/clean-music` n'existe pas sur cette machine. Le nettoyage se fait avec le script livré avec ce skill :
+
+```bash
+bash ~/.claude/skills/zik-dl/clean.sh ~/Soulseek\ Downloads/complete
+```
+
+Il remonte les fichiers hors des sous-dossiers, supprime dossiers vides et `.DS_Store`, retire les préfixes numériques, et renomme en "Artiste - Titre.ext" à partir des tags ID3 (via `ffprobe`). Un `--dry-run` en 3e argument affiche ce qui serait fait sans rien modifier.
+
+> À lancer systématiquement en fin de lot, **après** la vérification de l'étape 4 et le résumé de l'étape 5 — sinon les renommages cassent le matching de l'étape 4.
 
 ---
 
 ## Règles à respecter
 
-- **Ne pas attendre la fin du téléchargement** avant de passer au morceau suivant — SoulseekQt gère la file tout seul.
-- **Pas de fichiers qualité inférieure** : si les seuls résultats disponibles ne sont pas en 320kbps, signale-le à Nico plutôt que de télécharger du 128kbps.
-- **En cas de problème avec SoulseekQt** (app fermée, fenêtre introuvable, erreur réseau) : signaler le problème et arrêter proprement en indiquant où on en était.
-- **Rythme** : prendre un screenshot après chaque action clé (search lancé, résultats apparus, double-clic, transfer confirmé) — ne pas cliquer à l'aveugle.
-
----
-
-## Ce qui a été testé sur le Mac mini-de-nico le 2026-08-18
-
-Test mené depuis Claude Code (terminal), pas depuis Claude Desktop. Résultats mesurés, pas supposés.
-
-### Les outils `computer_*` n'existent pas dans Claude Code
-`computer_resolve_access`, `computer_screenshot`, `computer_open_application` sont propres à Claude Desktop. Les étapes 2 et 3 ci-dessus ne tournent pas dans un terminal. L'équivalent y est AppleScript via `osascript`, plus `screencapture` et `cliclick`.
-
-### SoulseekQt n'a aucun dictionnaire AppleScript
-Aucun `.sdef`, aucune clé de scripting dans son `Info.plist`. Le pilotage propre par commandes est exclu. Seule reste l'accessibilité (System Events), qui exige d'accorder l'Accessibilité au Terminal dans Réglages Système, et de **relancer le Terminal après** : un processus démarré avant l'autorisation ne l'obtient pas.
-
-### Ce qui marche par accessibilité
-Chemin de la fenêtre : `UI element 1 of window 1` contient deux groupes, le panneau de recherche et la barre Manual Searches.
-
-- **Onglets nommés et cliquables** : Transfers, Rooms, Chat, Search, Users, Browse, Options. Plus besoin de cliquer à des coordonnées.
-- **Compteur de transferts lisible** dans le titre de l'onglet, sous la forme `Transfers [0/0]`. Il confirme qu'un téléchargement est parti sans prendre de capture d'écran.
-- **Champ de recherche** : `UI element 2 of UI element 1 of UI element 1 of UI element 1 of window 1`. On y écrit avec `set value`.
-- **Bouton Search** : `UI element 2` du panneau.
-- **Colonnes de résultats nommées** : User, Free, K/s, Folder, File, Size, Attributes.
-
-### Ce qui ne marche pas, et qui bloque l'automatisation complète
-**Les lignes de résultats ne sont pas exposées.** Vérifié le 18/08 : recherche « Bicep Glue » lancée, résultats bien visibles à l'écran, et `count of rows` retourne 0. Qt dessine la table sans la publier à l'accessibilité.
-
-Conséquence directe : choisir le bon MP3 320kbps ne peut se faire qu'en analysant une capture d'écran, puis en cliquant à des coordonnées. C'est la partie fragile, et elle le restera.
-
-### Piège du champ de recherche
-`set value` ne remplace pas toujours le contenu précédent, il se mélange avec. Vécu le 18/08 : « Bicep Glue » est parti en « Bicep Gluet me n ». **Toujours vider le champ (`set value of tf to ""`), attendre, écrire, puis relire la valeur et vérifier qu'elle est exacte avant de cliquer sur Search.**
-
-### Bug connu, signalé par Nico
-Sur les morceaux qui retournent trop de fichiers, SoulseekQt bugue et s'arrête. Parade à appliquer : ne jamais lancer une recherche trop large, et préférer des termes précis (artiste + titre) plutôt qu'un seul mot.
-
-### La vraie solution à étudier avant d'aller plus loin
-`slskd`, un client Soulseek qui expose une **API REST**. Il supprime tout le pilotage d'interface : recherche, sélection et téléchargement deviennent des appels HTTP, donc scriptables depuis n8n comme n'importe quelle intégration. À évaluer avant d'investir davantage dans l'automatisation de la fenêtre.
-
-### Dépendance non satisfaite
-Le MCP Airtable (`mcp__Airtable__*`) n'est pas connecté à Claude Code. Il fournit la liste des morceaux et coche « Deja dans collection ». Sans lui, l'étape 1 et l'étape 3e ne tournent pas.
+- **Lots de 50**, découpés en **sous-lots de 8** avec redémarrage de SoulseekQt entre chaque (3g), et une **attente de 2 min avant chaque redémarrage** pour ne pas tuer les transferts en file.
+- **Ne jamais retraiter un morceau déjà coché "Download" ou "Pas trouvé"** — le filtre de l'étape 1 s'en charge.
+- **Requête = premier artiste + titre**, ponctuation retirée (3b). Jamais la liste complète des artistes.
+- **Ne pas attendre la fin d'un téléchargement** avant de passer au suivant, ne pas checker Transfers pendant la boucle.
+- **10 secondes max de recherche par morceau.**
+- **Pas de qualité inférieure** : si aucun résultat en 320kbps, le signaler à Nico plutôt que de prendre du 128kbps.
+- **Requêtes très populaires = risque de plantage** (trop de résultats d'un coup : "daft punk one more time" fait tomber l'app). Si l'app ne répond plus après une recherche, applique l'étape 3e sans insister.
+- **Ne jamais tenter de fermer les onglets un par un** (3g) — deux clics dans le champ de recherche avant chaque frappe (3h).
+- **Toujours faire le second passage sans filtre sur les introuvables** (étape 4 bis) avant de clore le lot.
+- **Screenshot après chaque action clé** (search lancé, résultats apparus, double-clic) — ne jamais cliquer à l'aveugle.
+- **Ne rien taper pendant que la fenêtre SoulseekQt n'a pas le focus** — un `activate` avant chaque série de frappes.
