@@ -61,10 +61,11 @@ Impact [client / eleve / equipe, selon le destinataire] :
 
 A savoir :
 - [risque, point ouvert, ou decision qui attend le destinataire. Retirer si rien]
-
-Demain :
-- [1 ou 2 lignes]
 ```
+
+**Pas de section "Demain", jamais.** Le punto raconte ce qui EST FAIT, pas un programme.
+Ce qui reste a faire n'a sa place que dans "A savoir", et seulement quand ca attend une
+decision du destinataire.
 
 ### 4. Regles de redaction
 - Une ligne = un fait. Pas de paragraphe.
