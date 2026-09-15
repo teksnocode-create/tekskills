@@ -1,10 +1,10 @@
 # Profil — Nicolas Gilquin
 
 ## Qui je suis
-- Product Builder No-code, alternance Kaizen IA jusqu'à septembre 2026 (fin de contrat mécanique actée, pas de reconduction prévue)
+- Product Builder No-code. Freelance pour Kaizen IA depuis le 03/09/2026 (client, plus employeur) : 12 j/mois garantis à 130€ HT. L'alternance est terminée.
 - DJ sous Sorek Inc (~10k€ CA annuel)
 - Autodidacte, profil terrain : 10 ans direction d'entreprise en restauration (2012-2023) avant la reconversion no-code/IA
-- En transition professionnelle active : cible Product Builder IA / Product Owner en ESN ou boîte produit pour la rentrée 2026
+- Recherche de poste = priorité n°1 (Kaizen ne couvre pas le foyer) : Product Builder IA / Product Owner, ESN ou boîte produit, plus une vertical musique
 - Plusieurs projets perso en parallèle sans client : SynkParty (app événementielle), Silteplay (app parentale), Sorek Lab (portfolio), CRM DJ
 
 ## Comment je communique (à respecter partout, tous projets)
@@ -33,3 +33,6 @@ Je décroche sur les gros pavés : au-delà d'un écran, je ne lis plus, je ne c
 
 ## Stack technique récurrente
 n8n, Make, Claude / Claude Code, Supabase, Airtable, Antigravity (IDE avec MCP Stitch/Supabase/GitHub)
+
+## Où trouver mon contexte complet
+`~/_Projet_Sorek/Executive assistant` (repo git). Lire `context/current-priorities.md` avant toute analyse de ma situation pro plutôt que de me poser la question.
