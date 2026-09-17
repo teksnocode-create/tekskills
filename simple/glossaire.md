@@ -35,4 +35,6 @@ Terme considéré comme acquis dès qu'il apparaît ici : ne plus le re-simplifi
 - **appliquer une migration** : exécuter le fichier de migration sur la vraie base, pour que le changement décrit dedans existe pour de bon (le fichier seul, c'est un post-it "créer telle table" ; l'appliquer, c'est la créer)
 - **prompt système** : les consignes permanentes envoyées à l'IA avant chaque question, que le client ne voit jamais (le cadre : de quoi elle a le droit de parler, ce qu'elle n'a pas le droit d'inventer)
 - **fail-closed** : quand une vérification échoue, on refuse au lieu de laisser passer (un garde-fou qui bloque en cas de doute plutôt que d'ouvrir en grand)
+- **clé publique (Supabase)** : la clé d'accès à la base qui est visible dans le code du site par n'importe quel visiteur ; seules les règles RLS décident ce qu'elle a le droit de lire ou modifier
+- **fonction serveur (edge function)** : un petit programme hébergé chez Supabase qui fait le travail à la place du navigateur, comme un workflow n8n appelé par webhook qui vérifie un token avant d'écrire dans Airtable
 - **encadrer par des balises** : entourer le texte du client de marqueurs `<message_client>` pour que l'IA le traite comme une question et jamais comme un ordre (même logique que ne pas faire confiance au contenu d'un webhook)
