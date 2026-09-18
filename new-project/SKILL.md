@@ -1,6 +1,6 @@
 ---
 name: new-project
-description: Initialise la structure complète d'un nouveau repo de projet build (CLAUDE.md, ROADMAP.md, LOGBOOK.md, .gitignore adapté à la stack, dossiers .claude/rules et .claude/skills), puis mène l'interview section par section pour les remplir. Déclencher quand Nicolas tape "/new-project", ou dit "init projet", "nouveau projet", "initialise ce projet", "setup projet", ou ouvre un repo vide pour démarrer un chantier.
+description: Initialise la structure complète d'un nouveau repo de projet build (CLAUDE.md, ROADMAP.md, LOGBOOK.md, .gitignore adapté à la stack, skills projet open/log/close, checklist OWASP), puis mène l'interview section par section pour les remplir. Déclencher quand Nicolas tape "/new-project", ou dit "init projet", "nouveau projet", "initialise ce projet", "setup projet", ou ouvre un repo vide pour démarrer un chantier.
 ---
 
 # Skill : /new-project — Initialisation d'un nouveau projet build
@@ -36,6 +36,8 @@ docs/
   .gitkeep
 ```
 
+`.claude/skills/` ne reste pas vide : `open`, `log` et `close` y sont générés en Phase 3.
+
 Confirmer : "Structure créée. Je commence l'interview — une section à la fois."
 
 ---
@@ -54,6 +56,7 @@ Si Nicolas dit "passe" ou "plus tard" : noter un placeholder dans le fichier con
 - En une phrase : quel problème ça résout, pour qui ?
 - Projet client ou projet perso ?
 - Repo GitHub déjà créé ? URL si oui ?
+- Tu es seul sur ce repo, ou plusieurs personnes y travaillent ? (détermine la version du `/close` généré)
 
 ---
 
@@ -124,6 +127,7 @@ Utiliser cette structure (rester sous 120 lignes) :
 ## Sécurité — règles absolues
 - Ne jamais exposer [données sensibles S4] côté client ou dans le repo
 - [autres règles selon S4]
+- Checklist OWASP Top 10 à repasser avant toute mise en production : voir `.claude/rules/owasp-checklist.md`
 [Si sécurité avancée activée → ajouter : `- Règles détaillées : voir `.claude/rules/security-supabase.md``]
 
 ## Modèle de données
@@ -149,7 +153,7 @@ Utiliser cette structure (rester sous 120 lignes) :
 - [autres conventions S5]
 
 ## Mots-clés projet
-<!-- Skills propres à CE projet — ne pas lister les skills globaux (open, close, recap) -->
+<!-- `/open`, `/log` et `/close` sont générés dans ce repo et lui appartiennent : les modifier ici ne touche aucun autre projet -->
 <!-- Format : `mot-clé` → ce que ça fait -->
 ```
 
@@ -252,6 +256,160 @@ Générer uniquement si Supabase + auth OU données sensibles confirmés en S4.
 
 ---
 
+### .claude/skills/ — open, log, close (systématique)
+
+Générer les 3 dans **tous** les projets. Ils appartiennent à ce repo : les modifier ici ne touche aucun autre projet, et sur un repo partagé ils portent le process de l'équipe.
+Remplacer `[NOM]` par le nom du projet. Le `/close` a deux variantes selon la réponse « seul ou à plusieurs » de la section 1.
+
+#### `.claude/skills/open/SKILL.md`
+
+```markdown
+---
+name: open
+description: Reprise de session sur [NOM]. Affiche où en est le projet, ce qui est en cours et ce qui traîne non commité. Déclencher sur "/open", "on reprend", "où on en est".
+---
+
+# /open — [NOM]
+
+## Déroulé
+1. Lire `ROADMAP.md` : phase en cours, features cochées, features restantes
+2. Lire les 3 dernières entrées de `LOGBOOK.md` : ce qui a été fait, la prochaine étape notée la dernière fois
+3. `git status` et `git log --oneline -5` : travail non commité, derniers commits, branche courante
+
+## Sortie
+```
+OPEN — [NOM] — [date]
+**Où on en est** : phase [X], [N] features sur [M]
+**Dernière session** : [date] — [résumé en une ligne]
+**Prochaine étape notée** : [reprise du LOGBOOK]
+**Non commité** : [fichiers, ou "rien"]
+```
+
+## Règles
+- Lire les fichiers en direct, ne jamais se fier à la mémoire de la conversation
+- Si `LOGBOOK.md` est vide, le dire au lieu d'inventer
+- Ne rien modifier : `/open` est en lecture seule
+```
+
+#### `.claude/skills/log/SKILL.md`
+
+```markdown
+---
+name: log
+description: Snapshot de la conversation en cours dans le LOGBOOK de [NOM], pour fermer une fenêtre sans perdre le fil. Déclencher sur "/log", "note ce qu'on a fait", "archive ça".
+---
+
+# /log — [NOM]
+
+## Déroulé
+1. Extraire de la conversation : ce qui a été produit, les décisions structurantes, la prochaine étape concrète
+2. Ajouter à la suite de `LOGBOOK.md` :
+
+```
+### [HH:MM] — [sujet en 3 à 5 mots]
+
+**Fait**
+- [5 bullets maximum, synthétisés]
+
+**Décisions**
+- [uniquement ce qui engage la suite, sinon "aucune"]
+
+**Prochaine étape**
+- [une seule, la plus immédiate]
+```
+
+## Règles
+- 5 bullets maximum dans "Fait" : synthétiser, pas tout lister
+- Ne pas commiter, ne pas pousser : `/log` écrit un fichier, c'est tout
+- Si la session a déjà une entrée du jour, compléter sous le même titre de date
+```
+
+#### `.claude/skills/close/SKILL.md`
+
+```markdown
+---
+name: close
+description: Clôture de session sur [NOM] : bilan, LOGBOOK, ROADMAP, contrôle de ce qui part sur GitHub, commit et push. Déclencher sur "/close", "on ferme", "fin de session".
+---
+
+# /close — [NOM]
+
+## Étape 0 : le cadre
+Date du jour et jour de la semaine.
+[VARIANTE MULTI-PERSONNES : demander le prénom de la personne au clavier, il apparaît dans l'entrée du LOGBOOK et dans le message de commit.]
+
+## Étape 1 : le bilan, avant toute question
+Produire le bilan à partir de la conversation et du `git diff`, puis le soumettre pour correction. Ne pas demander « qu'est-ce que tu as fait ? » à quelqu'un qui vient de le faire.
+
+Trois blocs : **fait aujourd'hui**, **en cours / points ouverts**, **bloqué, en attente de quelqu'un**.
+
+## Étape 2 : écrire dans `LOGBOOK.md`
+Une entrée par session, append-only, jamais de réécriture d'une entrée passée.
+
+## Étape 3 : mettre à jour `ROADMAP.md`
+Cocher ce qui est livré. Ajouter ce qui est apparu en cours de route. Si une feature sort du périmètre, la déplacer en « Hors scope » avec la raison, ne pas la supprimer.
+
+## Étape 4 : contrôle de ce qui part sur GitHub
+Avant tout commit, vérifier ligne par ligne dans le diff :
+- Aucun secret, clé d'API, token ni clé de service
+- `.env` bien ignoré, aucun fichier de credentials indexé
+- Aucune donnée client réelle, aucun identifiant, aucune adresse
+- Aucun export ni dump de base
+
+Un doute sur un fichier se traite avant le commit, pas après le push.
+
+## Étape 5 : la sécurité, si quelque chose part en production
+Si la session met quelque chose en ligne ou touche à l'authentification, aux permissions ou aux données utilisateurs, repasser `.claude/rules/owasp-checklist.md` et reporter les points non traités avec leur raison.
+
+## Étape 6 : commit et push
+`git add` ciblé (jamais `git add .` à l'aveugle), commit, `git pull --rebase`, `push`. En cas de conflit, le résoudre fichier par fichier et le signaler, ne jamais forcer.
+
+## Étape 7 : la sortie
+Une ligne : ce qui est poussé, et la prochaine étape.
+
+## Règles
+- Le bilan se propose, il ne se demande pas
+- `LOGBOOK.md` est append-only
+- Rien ne part sur GitHub sans l'étape 4
+```
+
+---
+
+### .claude/rules/owasp-checklist.md (systématique)
+
+Générer sur **tous** les projets, sans condition, même sans Supabase et sans auth. Dix questions coûtent 10 minutes, une fuite de données entre clients payants coûte le client.
+
+```markdown
+# Checklist OWASP Top 10:2025
+
+Source : https://top10.owasp.org/2025/
+
+## Quand la repasser
+- Avant chaque mise en production
+- Dès qu'on touche à l'authentification, aux permissions ou aux données utilisateurs
+- Dès qu'on ajoute une dépendance ou un service externe
+
+Une ligne qui n'est pas cochée n'est pas un détail à traiter plus tard : c'est une décision à prendre et à écrire.
+
+## Les 10 points
+
+- [ ] **A01 Broken Access Control** — un compte connecté peut-il lire ou modifier les données d'un autre compte ? Tester en conditions réelles avec deux comptes, pas en lisant le code. *Déjà vécu : fuite inter-comptes SynkParty, et table des posts Cyrano sans aucune autorisation d'écriture pendant 9 jours.*
+- [ ] **A02 Security Misconfiguration** — `.env` bien ignoré par git, aucune clé de service côté client, pas de compte ni de mot de passe par défaut laissé actif. *Déjà vécu : `.env` absent du `.gitignore` sur Iris Cup.*
+- [ ] **A03 Software Supply Chain Failures** — d'où viennent les dépendances et les templates utilisés, et qui peut pousser du code qui part en production ?
+- [ ] **A04 Cryptographic Failures** — quelles données sensibles sont stockées, et sous quelle forme ? Aucun secret, aucun code d'accès en clair dans le dépôt ni dans un document qui circule. *Déjà vécu : codes PIN de démonstration reproduits dans un mémoire diffusé.*
+- [ ] **A05 Injection** — toute entrée utilisateur est validée côté serveur, jamais concaténée dans une requête. Vaut aussi pour les entrées passées à un modèle IA.
+- [ ] **A06 Insecure Design** — le scénario d'abus a-t-il été posé avant de coder ? Qui a intérêt à tricher ici, et qu'est-ce qui l'en empêche ?
+- [ ] **A07 Authentication Failures** — comment on se connecte, comment on se déconnecte partout, et que vaut réellement le facteur utilisé (un code à 4 chiffres n'est pas une authentification).
+- [ ] **A08 Software or Data Integrity Failures** — que se passe-t-il si une automatisation écrase une donnée saisie à la main ? Qui gagne en cas de conflit, et c'est écrit où ?
+- [ ] **A09 Security Logging and Alerting Failures** — si ça tombe en panne cette nuit, qui l'apprend et au bout de combien de temps ? Une alerte que personne n'ouvre ne compte pas comme une alerte. *Déjà vécu : relances SynkParty en panne 7 jours sans signal, trouvées par hasard ; alerte n8n Cyrano déclenchée à 9h05 et ouverte 7 heures plus tard.*
+- [ ] **A10 Mishandling of Exceptional Conditions** — que fait le système quand l'API externe ne répond pas, renvoie une erreur ou des données vides ? Un échec silencieux est pire qu'un plantage.
+
+## Règle
+Les points non traités restent listés ici avec la raison et la date, jamais effacés.
+```
+
+---
+
 ### .gitignore
 
 Générer selon la stack détectée en S2. Base systématique :
@@ -279,7 +437,7 @@ Ajouter selon la stack :
 Une fois les fichiers générés :
 
 1. Afficher l'arborescence complète des fichiers créés
-2. Résumé en une ligne par fichier (indiquer si `security-supabase.md` a été activé ou non)
+2. Résumé en une ligne par fichier (indiquer si `security-supabase.md` a été activé ou non ; `owasp-checklist.md` et les 3 skills `open`/`log`/`close` sont toujours présents)
 3. Créer le premier commit git : `feat: init projet [nom] — structure, CLAUDE.md, ROADMAP.md, LOGBOOK.md`
 4. Demander : "Tu veux qu'on attaque quelle feature en premier ?"
 
@@ -292,5 +450,6 @@ Une fois les fichiers générés :
 - Si "passe" ou "plus tard" : placeholder dans le fichier, on avance
 - CLAUDE.md sous 120 lignes — si ça déborde, c'est qu'on y met trop de choses
 - Pas de contenu dupliqué entre CLAUDE.md et ROADMAP.md — chaque info a une seule maison
-- Ne pas créer de skills pendant le setup — `.claude/skills/` reste vide
+- Les seuls skills générés au setup sont `open`, `log` et `close`, propres à ce repo. Ne pas en créer d'autres tant qu'un workflow récurrent n'a pas émergé
+- Ne jamais transformer ces 3 skills en skills globaux : sur un repo partagé, ils portent le process de l'équipe et une version globale l'écraserait pour tout le monde
 - Si le repo GitHub n'existe pas encore : ne pas bloquer, noter "non créé" dans CLAUDE.md et avancer
